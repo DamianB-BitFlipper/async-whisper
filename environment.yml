@@ -1,0 +1,17 @@
+name: async-whisper
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - black
+  - ffmpeg
+  - openai
+  - pip
+  - pre-commit
+  - pydub
+  - pyright
+  - python>=3.8
+  - pip:
+    - aiolimiter
+    - simpleaudio
+    - thefuzz

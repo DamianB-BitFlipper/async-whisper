@@ -1,0 +1,29 @@
+[build-system]
+requires = ["poetry_core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "async-whisper"
+version = "0.1.0"
+description = "Asynchronously transcribe audio files in chunks and intelligently join results, yielding nearly identical transcriptions to full audio transcriptions but in a fraction of the time."
+authors = ["Damian Barabonkov <damianb@alum.mit.edu>"]
+license = "MIT"
+readme = "README.md"
+packages = [
+    { include = "async_whisper" },
+]
+
+[tool.poetry.dependencies]
+aiolimiter = "*"
+openai = "*"
+pydub = "*"
+pyright = "*"
+python = "^3.8"
+thefuzz = "*"
+
+[tool.pyright]
+venv = "async-whisper"
+venvPath = "/Users/damianb/.micromamba/envs"
+
+[tool.black]
+line-length = 88
