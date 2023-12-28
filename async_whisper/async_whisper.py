@@ -11,21 +11,22 @@ from aiolimiter import AsyncLimiter
 from pydub import AudioSegment
 from thefuzz import fuzz
 
+
 client = openai.AsyncOpenAI(
     api_key=os.environ.get("OPENAI_API_KEY"),
 )
 
 
 @dataclass
-class StitchMeta:
+class _StitchMeta:
     overlap_len: int
     fuzz_ratio: int
 
 
 @dataclass
-class AudioChunk:
+class _AudioChunk:
     segment: AudioSegment
-    segment_length: int
+    segment_length_ms: int
     transcription: str | None = None
 
     @property
@@ -38,16 +39,16 @@ class AudioChunk:
 AUDIO_INTERVIEWS_DIR = Path("../private_audio_files")
 
 # Allow a maximum of 100 requests per minute
-ASYNC_RATE_LIMITER = AsyncLimiter(100, 60)
+ASYNC_RATE_LIMIT_RPM = 100
 
 # Timeout and retry after 15 seconds for segment transcription
 TRANSCRIBE_SEGMENT_TIMEOUT = 15
 
-# Have a 10 second overlap between each segment
-OVERLAP_LENGTH = 10_000
-
 # Each segment is 60 seconds long
-SEGMENT_LENGTH = 60_000
+SEGMENT_LENGTH_MS = 60_000
+
+# Have a 10 second overlap between each segment
+OVERLAP_LENGTH_MS = 10_000
 
 # When stitching together transcription segments, have
 # a `STITCH_WIGGLE` of words wiggle room
@@ -58,57 +59,78 @@ STITCH_WIGGLE = 15
 RESOLVE_OVERLAP_THRESHOLD = 4
 
 
-async def transcribe_audio_segment(
-    audio_segment: AudioSegment,
-    *,
-    uid: int,
-    timeout: int | None,
-    language: str,
-    prompt: str,
-) -> str:
-    # Load the `audio_segment` into a buffer
-    buffer = io.BytesIO()
-    audio_segment.export(buffer, format="mp3")
+class AsyncWhisper:
+    def __init__(
+        self,
+        audio_chunk_ms: int = SEGMENT_LENGTH_MS,
+        overlap_ms: int = OVERLAP_LENGTH_MS,
+        rate_limit_rpm: int = ASYNC_RATE_LIMIT_RPM,
+        *,
+        sitch_wiggle: int = STITCH_WIGGLE,
+        resolve_overlap_threshold: int = RESOLVE_OVERLAP_THRESHOLD,
+    ):
+        # Save the values to the instance
+        self.audio_chunk_ms = audio_chunk_ms
+        self.overlap_ms = overlap_ms
+        self.rate_limit_rpm = rate_limit_rpm
+        self.stitch_wiggle = sitch_wiggle
+        self.resolve_overlap_threshold = resolve_overlap_threshold
 
-    # Trick OpenAI into thinking the `buffer` is an mp3 file
-    buffer.name = "audio_segment.mp3"
+        # Create an `AsyncLimiter` to limit the rate of requests
+        self.rate_limiter = AsyncLimiter(self.rate_limit_rpm, 60)
 
-    start_time = time.time()
-    # Retry the request until it succeeds
-    while True:
-        try:
-            transcript = await asyncio.wait_for(
-                client.audio.transcriptions.create(
-                    file=buffer,
-                    model="whisper-1",
-                    language=language,
-                    prompt=prompt,
-                ),
-                timeout=timeout,
-            )
-            break
-        except asyncio.TimeoutError:
-            # Sanity check
-            assert timeout is not None
+    @staticmethod
+    async def transcribe_audio_segment(
+        audio_segment: AudioSegment,
+        *,
+        uid: int,
+        timeout: int | None,
+        language: str,
+        prompt: str,
+    ) -> str:
+        # Load the `audio_segment` into a buffer
+        buffer = io.BytesIO()
+        audio_segment.export(buffer, format="mp3")
 
-            # Backoff the timeout for the next request
-            timeout *= 2
+        # Trick OpenAI into thinking the `buffer` is an mp3 file
+        buffer.name = "audio_segment.mp3"
 
-            print("Timeout error, retrying...", file=sys.stderr)
-        except (
-            openai.APIConnectionError,
-            openai.APIStatusError,
-            openai.RateLimitError,
-        ) as e:
-            print(
-                f"An error occurred processing audio segment: {e}, retrying in 5 seconds...",
-                file=sys.stderr,
-            )
-            await asyncio.sleep(5)
+        start_time = time.time()
+        # Retry the request until it succeeds
+        while True:
+            try:
+                transcript = await asyncio.wait_for(
+                    client.audio.transcriptions.create(
+                        file=buffer,
+                        model="whisper-1",
+                        language=language,
+                        prompt=prompt,
+                    ),
+                    timeout=timeout,
+                )
+                break
+            except asyncio.TimeoutError:
+                # Sanity check
+                assert timeout is not None
 
-    print(f"{uid:3}: Transcribed in {time.time() - start_time} seconds")
+                # Backoff the timeout for the next request
+                timeout *= 2
 
-    return transcript.text
+                print("Timeout error, retrying...", file=sys.stderr)
+            except (
+                openai.APIConnectionError,
+                openai.APIStatusError,
+                openai.RateLimitError,
+            ) as e:
+                print(
+                    f"An error occurred processing audio segment: {e}, retrying in 5 seconds...",
+                    file=sys.stderr,
+                )
+                await asyncio.sleep(5)
+
+        print(f"{uid:3}: Transcribed in {time.time() - start_time} seconds")
+
+        return transcript.text
 
 
 async def safe_transcribe_audio_segment(
@@ -204,113 +226,3 @@ def resolve_overlap(
             resolved_overlap.append(word2)
 
     return resolved_overlap
-
-
-async def main() -> None:
-    glob = "*.mp3"
-    for audio_filepath in AUDIO_INTERVIEWS_DIR.glob(glob):
-        audio_segment = AudioSegment.from_mp3(audio_filepath)
-
-        audio_chunks = []
-        total_length = len(audio_segment)
-        start = 0
-        while True:
-            # Make `SEGMENT_LENGTH` second segments
-            end = min(start + SEGMENT_LENGTH, total_length)
-
-            # Add the segment to the list
-            audio_chunks.append(
-                AudioChunk(
-                    segment=audio_segment[start:end],
-                    segment_length=end - start,
-                )
-            )
-
-            # Break if we're at the end of the audio segment
-            if end == total_length:
-                break
-
-            # Increment the start time
-            start += SEGMENT_LENGTH - OVERLAP_LENGTH
-
-        # ADDED
-        entire_start_time = time.time()
-        # Transcribe the audio segment
-        entire_transcription = await safe_transcribe_audio_segment(
-            audio_segment,
-            uid=0,
-            timeout=None,
-        )
-        entire_end_time = time.time()
-
-        segments_start_time = time.time()
-        # Transcribe each segment in `segments`
-        transcription_tasks = [
-            safe_transcribe_audio_segment(
-                audio_chunk.segment,
-                uid=audio_chunk_id,
-                timeout=TRANSCRIBE_SEGMENT_TIMEOUT,
-            )
-            for audio_chunk_id, audio_chunk in enumerate(audio_chunks)
-        ]
-        transcriptions = await asyncio.gather(*transcription_tasks)
-        segments_end_time = time.time()
-
-        # Set the `transcription` attribute of each `AudioChunk`
-        for audio_chunk, transcription in zip(audio_chunks, transcriptions):
-            audio_chunk.transcription = transcription
-
-        # Stitch the transcription segments together
-        before_words = audio_chunks[0].transcription_words
-        for i in range(1, len(audio_chunks)):
-            prev_audio_chunk = audio_chunks[i - 1]
-            prev_words = prev_audio_chunk.transcription_words
-
-            current_audio_chunk = audio_chunks[i]
-            current_words = current_audio_chunk.transcription_words
-
-            # Approximate the overlap length by extrapolating the words spoken per second
-            # from the `prev_audio_chunk` and the `current_audio_chunk`
-            approx_overlap_len = int(
-                (len(prev_words) + len(current_words))
-                * (
-                    OVERLAP_LENGTH
-                    / (
-                        prev_audio_chunk.segment_length
-                        + current_audio_chunk.segment_length
-                    )
-                )
-            )
-
-            stitch_meta = stitch_audio_segments(
-                before_words=before_words,
-                after_words=current_words,
-                approx_overlap_len=approx_overlap_len,
-            )
-
-            stitch_str1_words = before_words[: -stitch_meta.overlap_len]
-            stitch_str2_words = current_words[stitch_meta.overlap_len :]
-            stitch_overlap_words = resolve_overlap(
-                overlap1=before_words[-stitch_meta.overlap_len :],
-                overlap2=current_words[: stitch_meta.overlap_len],
-                streak_threshold=RESOLVE_OVERLAP_THRESHOLD,
-            )
-
-            stitch_words = stitch_str1_words + stitch_overlap_words + stitch_str2_words
-
-            # Update `before_words` for the next iteration
-            before_words = stitch_words
-
-        # The stitched transcript is the final `before_words`
-        stitched_transcript_str = " ".join(before_words)
-
-        print(
-            f"Audio file: {audio_filepath} -- {fuzz.ratio(entire_transcription, stitched_transcript_str)}"
-        )
-        print(
-            f"  Entire time: {entire_end_time - entire_start_time} -- Segments time: {segments_end_time - segments_start_time}"
-        )
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
