@@ -18,7 +18,7 @@ aiolimiter = "*"
 openai = "*"
 pydub = "*"
 pyright = "*"
-python = "^3.8"
+python = "^3.9"
 thefuzz = "*"
 
 [tool.pyright]
