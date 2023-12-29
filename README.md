@@ -70,24 +70,21 @@ Similarity scores of ≥ 97% are essentially semantically identical transcriptio
 
 #### Short audio (≈1.5 minutes in duration)
 
-Baseline: **10.99s**
+| Baseline   | `async-whisper` | Similarity Score |
+|:----------:|:---------------:|:----------------:|
+| **10.99s** | **10.02s**      | **100%**         |
 
-`async-whisper`: **10.02s**
-
-Similarity Score: **100%**
 
 #### Medium audio (≈3 minutes in duration)
 
-Baseline: **32.49s**
+| Baseline   | `async-whisper` | Similarity Score |
+|:----------:|:---------------:|:----------------:|
+| **32.49s** | **7.71s**       | **97%**          |
 
-`async-whisper`: **7.71s**
-
-Similarity Score: **97%**
 
 #### Long audio (≈7.5 minutes in duration)
 
-Baseline: **56.31s**
+| Baseline   | `async-whisper` | Similarity Score |
+|:----------:|:---------------:|:----------------:|
+| **56.31s** | **11.03s**      | **97%**          |
 
-`async-whisper`: **11.03s**
-
-Similarity Score: **97%**
