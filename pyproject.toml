@@ -5,7 +5,7 @@ build-backend = "poetry.core.masonry.api"
 [tool.poetry]
 name = "async-whisper"
 version = "0.1.0"
-description = "Asynchronously transcribe audio files in chunks and intelligently join results, yielding nearly identical transcriptions to full audio transcriptions but in a fraction of the time."
+description = "Asynchronously transcribe audio files split into chunks in parallel and intelligently join results, yielding nearly identical transcriptions to full audio transcriptions but in a fraction of the time."
 authors = ["Damian Barabonkov <damianb@alum.mit.edu>"]
 license = "MIT"
 readme = "README.md"
