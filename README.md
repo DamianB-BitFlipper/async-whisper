@@ -4,11 +4,13 @@ Asynchronously transcribe audio files split into chunks in parallel and intellig
 
 ## Installation
 
-Simply install via `pip`.
+Simply install the package via `pip`. Additionally, `ffmpeg` or `libav` must be installed on the system.
 
 ```bash
 pip install async-whisper
 ```
+
+To set up `ffmpeg`, follow the `pydub` [setup](https://github.com/jiaaro/pydub#getting-ffmpeg-set-up) instructions.
 
 ### Development Installation
 
@@ -87,4 +89,3 @@ Similarity scores of ≥ 97% are essentially semantically identical transcriptio
 | Baseline   | `async-whisper` | Similarity Score |
 |:----------:|:---------------:|:----------------:|
 | **56.31s** | **11.03s**      | **97%**          |
-
